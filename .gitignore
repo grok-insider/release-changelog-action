@@ -1,0 +1,8 @@
+# OS / editor junk
+.DS_Store
+*.swp
+*~
+
+# local env / logs
+.env
+*.log

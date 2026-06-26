@@ -1,0 +1,78 @@
+name: "AI release changelog"
+description: "Generate a Claude-Code-style CHANGELOG section from git history via OpenRouter and splice it into the changelog file."
+author: "grok-insider"
+branding:
+  icon: "file-text"
+  color: "purple"
+
+inputs:
+  version:
+    description: "Version being released, e.g. 0.2.0 (no leading v)."
+    required: true
+  range:
+    description: "git commit range, e.g. v0.1.0..HEAD. Default: since the last tag (or whole history)."
+    required: false
+    default: ""
+  model:
+    description: "OpenRouter model id."
+    required: false
+    default: "deepseek/deepseek-v4-flash"
+  changelog-file:
+    description: "Path to the changelog file to update."
+    required: false
+    default: "CHANGELOG.md"
+  openrouter-api-key:
+    description: "OpenRouter API key. If empty, falls back to a plain commit-subject list."
+    required: false
+    default: ""
+  project-name:
+    description: "Project name for prompt context. Defaults to the repository name."
+    required: false
+    default: ${{ github.event.repository.name }}
+  project-description:
+    description: "Optional one-line project description for prompt context."
+    required: false
+    default: ""
+
+outputs:
+  section-file:
+    description: "Path to a file containing just the generated `## <version>` section."
+    value: ${{ steps.run.outputs.section-file }}
+  changed:
+    description: "'true' if the changelog file content changed, else 'false'."
+    value: ${{ steps.run.outputs.changed }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: run
+      shell: bash
+      env:
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        CHANGELOG_MODEL: ${{ inputs.model }}
+        CHANGELOG_FILE: ${{ inputs.changelog-file }}
+        PROJECT_NAME: ${{ inputs.project-name }}
+        PROJECT_DESCRIPTION: ${{ inputs.project-description }}
+        VERSION: ${{ inputs.version }}
+        RANGE: ${{ inputs.range }}
+      run: |
+        set -euo pipefail
+        range="$RANGE"
+        if [ -z "$range" ]; then
+          prev_tag="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
+          if [ -n "$prev_tag" ]; then range="${prev_tag}..HEAD"; else range="HEAD"; fi
+        fi
+        echo "Generating changelog for v$VERSION over range: $range"
+        before="$( [ -f "$CHANGELOG_FILE" ] && cat "$CHANGELOG_FILE" || true )"
+        section_file="$(mktemp)"
+        bash "${{ github.action_path }}/gen-changelog.sh" "$VERSION" "$range" > "$section_file"
+        echo "::group::Generated changelog section"
+        cat "$section_file"
+        echo "::endgroup::"
+        bash "${{ github.action_path }}/update-changelog.sh" "$VERSION" "$section_file"
+        after="$( cat "$CHANGELOG_FILE" )"
+        if [ "$before" != "$after" ]; then changed=true; else changed=false; fi
+        {
+          echo "section-file=$section_file"
+          echo "changed=$changed"
+        } >> "$GITHUB_OUTPUT"
