@@ -25,6 +25,10 @@ inputs:
     description: "OpenRouter API key. If empty, falls back to a plain commit-subject list."
     required: false
     default: ""
+  openrouter-base-url:
+    description: "OpenRouter-compatible API base URL (override for a proxy/mirror)."
+    required: false
+    default: "https://openrouter.ai/api/v1"
   project-name:
     description: "Project name for prompt context. Defaults to the repository name."
     required: false
@@ -49,6 +53,7 @@ runs:
       shell: bash
       env:
         OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        OPENROUTER_BASE_URL: ${{ inputs.openrouter-base-url }}
         CHANGELOG_MODEL: ${{ inputs.model }}
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         PROJECT_NAME: ${{ inputs.project-name }}
