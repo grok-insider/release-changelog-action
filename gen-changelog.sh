@@ -6,8 +6,8 @@
 # Usage:
 #   gen-changelog.sh <version> [<git-range>]
 #
-# Output (stdout): a markdown section beginning with `## <version>`, e.g.
-#   ## 0.2.0
+# Output (stdout): a markdown section beginning with a version heading, e.g.
+#   ## [0.2.0] - 2026-07-08
 #
 #   - Added ...
 #   - Fixed ...
@@ -19,6 +19,9 @@
 #   OPENROUTER_BASE_URL   API base (default: https://openrouter.ai/api/v1).
 #   PROJECT_NAME          Optional project name, for prompt context.
 #   PROJECT_DESCRIPTION   Optional one-line project description, for prompt context.
+#   HEADING_STYLE         keepachangelog (default) → `## [X.Y.Z] - YYYY-MM-DD`
+#                         plain → `## X.Y.Z` (legacy)
+#   HEADING_DATE          Optional date for keepachangelog (default: UTC today).
 #
 # This script never fails the caller: on any error (missing key, network/API
 # failure, empty model output) it prints a deterministic fallback section so a
@@ -32,10 +35,20 @@ model="${CHANGELOG_MODEL:-deepseek/deepseek-v4-flash}"
 base_url="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 project_name="${PROJECT_NAME:-this project}"
 project_description="${PROJECT_DESCRIPTION:-}"
+heading_style="${HEADING_STYLE:-keepachangelog}"
+heading_date="${HEADING_DATE:-$(date -u +%F)}"
+
+# Section heading line for the given version (Keep a Changelog by default).
+section_heading() {
+  case "$heading_style" in
+    plain) printf '## %s' "$version" ;;
+    *) printf '## [%s] - %s' "$version" "$heading_date" ;;
+  esac
+}
 
 # Plain, dependency-free fallback: bullet list of commit subjects.
 emit_fallback() {
-  printf '## %s\n\n' "$version"
+  printf '%s\n\n' "$(section_heading)"
   local subjects
   subjects="$(git log --no-merges --pretty=format:'- %s' "$range" 2>/dev/null)"
   if [ -n "$subjects" ]; then
@@ -119,4 +132,4 @@ if [ -z "$content" ]; then
   exit 0
 fi
 
-printf '## %s\n\n%s\n' "$version" "$content"
+printf '%s\n\n%s\n' "$(section_heading)" "$content"

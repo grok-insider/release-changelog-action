@@ -37,6 +37,10 @@ inputs:
     description: "Optional one-line project description for prompt context."
     required: false
     default: ""
+  heading-style:
+    description: "Version heading format. keepachangelog (default) emits `## [X.Y.Z] - YYYY-MM-DD`; plain emits bare `## X.Y.Z`."
+    required: false
+    default: "keepachangelog"
 
 outputs:
   section-file:
@@ -58,16 +62,21 @@ runs:
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         PROJECT_NAME: ${{ inputs.project-name }}
         PROJECT_DESCRIPTION: ${{ inputs.project-description }}
+        HEADING_STYLE: ${{ inputs.heading-style }}
         VERSION: ${{ inputs.version }}
         RANGE: ${{ inputs.range }}
       run: |
         set -euo pipefail
         range="$RANGE"
         if [ -z "$range" ]; then
-          prev_tag="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
+          # Prefer the latest vX.Y.Z tag (semver), not an arbitrary git describe tip.
+          prev_tag="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n1 || true)"
+          if [ -z "$prev_tag" ]; then
+            prev_tag="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
+          fi
           if [ -n "$prev_tag" ]; then range="${prev_tag}..HEAD"; else range="HEAD"; fi
         fi
-        echo "Generating changelog for v$VERSION over range: $range"
+        echo "Generating changelog for v$VERSION over range: $range (heading-style=${HEADING_STYLE:-keepachangelog})"
         before="$( [ -f "$CHANGELOG_FILE" ] && cat "$CHANGELOG_FILE" || true )"
         section_file="$(mktemp)"
         bash "${{ github.action_path }}/gen-changelog.sh" "$VERSION" "$range" > "$section_file"
