@@ -50,22 +50,25 @@ Release PR, commits, and pushes (it owns the PR context and token).
 | input | required | default | description |
 |-------|----------|---------|-------------|
 | `version` | yes | — | Version being released, e.g. `0.2.0` (no leading `v`). |
-| `range` | no | since last tag | git range, e.g. `v0.1.0..HEAD`. Empty → `git describe`-derived `prev..HEAD` (or whole history). |
+| `range` | no | since last tag | git range, e.g. `v0.1.0..HEAD`. Empty → latest `v*` tag..HEAD (or whole history). Prefer an explicit range on hand-rolled release PRs. |
 | `model` | no | `deepseek/deepseek-v4-flash` | OpenRouter model id. |
 | `changelog-file` | no | `CHANGELOG.md` | File to update. |
 | `openrouter-api-key` | no | — | OpenRouter key. Empty → fallback list. |
 | `openrouter-base-url` | no | `https://openrouter.ai/api/v1` | OpenRouter-compatible API base (proxy/mirror). |
 | `project-name` | no | repo name | Project name for prompt context. |
 | `project-description` | no | — | One-line project description for context. |
+| `heading-style` | no | `keepachangelog` | `keepachangelog` → `## [X.Y.Z] - YYYY-MM-DD`; `plain` → bare `## X.Y.Z`. |
 
-The **minimal** call passes only `version` + `openrouter-api-key` (the six real
-consumers also pass `project-description`); everything else has a sane default.
+The **minimal** call passes only `version` + `openrouter-api-key` (the real
+consumers also pass `project-description` and usually `range`); everything else
+has a sane default. Headings default to Keep a Changelog form so callers do not
+need a post-sed normalize step.
 
 ## Outputs
 
 | output | description |
 |--------|-------------|
-| `section-file` | Path to a file holding just the generated `## <version>` section. |
+| `section-file` | Path to a file holding just the generated section (heading + bullets). |
 | `changed` | `'true'` if the changelog file content changed, else `'false'`. |
 
 ## Usage — Rust (release-plz)
@@ -128,6 +131,25 @@ jobs:
 > Pass the PR JSON through `env:` (`PR_JSON`) and read it with `<<<"$PR_JSON"` —
 > never interpolate `${{ steps… }}` directly inside the `run:` script (that breaks
 > on quotes and is script-injection-prone).
+
+## Usage — hand-rolled patch-line release PR (open-recorder style)
+
+When the automatic stream only bumps **patch** (`x.y.z → x.y.z+1`) and major/minor
+go through a separate admin workflow:
+
+```yaml
+- name: Generate the AI changelog section
+  uses: grok-insider/release-changelog-action@v1
+  with:
+    version: ${{ steps.decide.outputs.next }}       # e.g. 0.2.1
+    range: v${{ steps.decide.outputs.current }}..HEAD
+    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+    project-description: "One-line description of your project."
+# Heading is already `## [0.2.1] - YYYY-MM-DD` — no sed normalize needed.
+```
+
+Always pass an explicit `range` so the notes cover the same commits as the version
+decision (`vCURRENT..HEAD` on master), not whatever is on a force-pushed PR branch.
 
 ## Usage — Python (release-please)
 
