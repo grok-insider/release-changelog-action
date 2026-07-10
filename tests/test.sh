@@ -337,7 +337,9 @@ assert_file_equals "$tmp/composite-before" "$changelog" "composite missing versi
 assert_equals false "$(output_value changed "$github_output")" "missing version changed output"
 assert_equals preserved "$(output_value generation-source "$github_output")" "missing version source output"
 persisted_section="$(output_value section-file "$github_output")"
-[ -f "$persisted_section" ] && [ ! -s "$persisted_section" ] || fail "missing-version section-file is not empty"
+if [ ! -f "$persisted_section" ] || [ -s "$persisted_section" ]; then
+  fail "missing-version section-file is not empty"
+fi
 [ ! -e "$capture" ] || fail "missing version sent commit data to OpenRouter"
 pass "composite missing-version path preserves before generation"
 
@@ -355,7 +357,9 @@ rm -f "$action_tmp"/* "$tmp/missing-changelog"
 assert_equals false "$(output_value changed "$github_output")" "missing file changed output"
 assert_equals preserved "$(output_value generation-source "$github_output")" "missing file source output"
 persisted_section="$(output_value section-file "$github_output")"
-[ -f "$persisted_section" ] && [ ! -s "$persisted_section" ] || fail "missing-file section-file is not empty"
+if [ ! -f "$persisted_section" ] || [ -s "$persisted_section" ]; then
+  fail "missing-file section-file is not empty"
+fi
 pass "composite missing-file path is a warning-only no-op"
 
 echo "1..$tests"
