@@ -21,8 +21,20 @@ set -euo pipefail
 version="${1:?usage: update-changelog.sh <version> <section-file>}"
 section_file="${2:?usage: update-changelog.sh <version> <section-file>}"
 file="${CHANGELOG_FILE:-CHANGELOG.md}"
+update_mode="${UPDATE_MODE:-replace-section}"
 
 [ -f "$section_file" ] || { echo "section file not found: $section_file" >&2; exit 1; }
+
+case "$update_mode" in
+  replace-section) ;;
+  highlights)
+    exec bash "$(dirname "$0")/update-highlights.sh" "$version" "$section_file"
+    ;;
+  *)
+    echo "unsupported update mode: $update_mode" >&2
+    exit 2
+    ;;
+esac
 
 if [ ! -f "$file" ]; then
   printf '# Changelog\n\nAll notable, user-facing changes are documented here, newest first.\n\n' > "$file"

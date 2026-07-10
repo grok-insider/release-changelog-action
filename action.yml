@@ -1,5 +1,5 @@
 name: "AI release changelog"
-description: "Generate a Claude-Code-style CHANGELOG section from git history via OpenRouter and splice it into the changelog file."
+description: "Generate Claude-Code-style release notes via OpenRouter and update a CHANGELOG version section or its Highlights subsection."
 author: "grok-insider"
 branding:
   icon: "file-text"
@@ -22,7 +22,7 @@ inputs:
     required: false
     default: "CHANGELOG.md"
   openrouter-api-key:
-    description: "OpenRouter API key. If empty, falls back to a plain commit-subject list."
+    description: "OpenRouter API key. If empty, applies the selected fallback mode."
     required: false
     default: ""
   openrouter-base-url:
@@ -41,14 +41,29 @@ inputs:
     description: "Version heading format. keepachangelog (default) emits `## [X.Y.Z] - YYYY-MM-DD`; plain emits bare `## X.Y.Z`."
     required: false
     default: "keepachangelog"
+  update-mode:
+    description: "replace-section replaces/inserts the full version section; highlights only inserts/replaces `### Highlights` in an existing version section."
+    required: false
+    default: "replace-section"
+  fallback-mode:
+    description: "commit-list writes deterministic commit bullets when AI generation fails; preserve leaves the changelog unchanged."
+    required: false
+    default: "commit-list"
+  commit-detail:
+    description: "full sends commit subjects and bodies to OpenRouter; subjects sends subjects only."
+    required: false
+    default: "full"
 
 outputs:
   section-file:
-    description: "Path to a file containing just the generated `## <version>` section."
+    description: "Path to the generated candidate version section. Highlights mode extracts its bullets; preserved runs leave it empty."
     value: ${{ steps.run.outputs.section-file }}
   changed:
     description: "'true' if the changelog file content changed, else 'false'."
     value: ${{ steps.run.outputs.changed }}
+  generation-source:
+    description: "How release content was produced: ai, fallback, or preserved."
+    value: ${{ steps.run.outputs.generation-source }}
 
 runs:
   using: "composite"
@@ -63,30 +78,10 @@ runs:
         PROJECT_NAME: ${{ inputs.project-name }}
         PROJECT_DESCRIPTION: ${{ inputs.project-description }}
         HEADING_STYLE: ${{ inputs.heading-style }}
+        UPDATE_MODE: ${{ inputs.update-mode }}
+        FALLBACK_MODE: ${{ inputs.fallback-mode }}
+        COMMIT_DETAIL: ${{ inputs.commit-detail }}
         VERSION: ${{ inputs.version }}
         RANGE: ${{ inputs.range }}
       run: |
-        set -euo pipefail
-        range="$RANGE"
-        if [ -z "$range" ]; then
-          # Prefer the latest vX.Y.Z tag (semver), not an arbitrary git describe tip.
-          prev_tag="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n1 || true)"
-          if [ -z "$prev_tag" ]; then
-            prev_tag="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
-          fi
-          if [ -n "$prev_tag" ]; then range="${prev_tag}..HEAD"; else range="HEAD"; fi
-        fi
-        echo "Generating changelog for v$VERSION over range: $range (heading-style=${HEADING_STYLE:-keepachangelog})"
-        before="$( [ -f "$CHANGELOG_FILE" ] && cat "$CHANGELOG_FILE" || true )"
-        section_file="$(mktemp)"
-        bash "${{ github.action_path }}/gen-changelog.sh" "$VERSION" "$range" > "$section_file"
-        echo "::group::Generated changelog section"
-        cat "$section_file"
-        echo "::endgroup::"
-        bash "${{ github.action_path }}/update-changelog.sh" "$VERSION" "$section_file"
-        after="$( cat "$CHANGELOG_FILE" )"
-        if [ "$before" != "$after" ]; then changed=true; else changed=false; fi
-        {
-          echo "section-file=$section_file"
-          echo "changed=$changed"
-        } >> "$GITHUB_OUTPUT"
+        bash "${{ github.action_path }}/run-action.sh"
