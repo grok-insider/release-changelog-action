@@ -15,7 +15,7 @@
 # Environment:
 #   OPENROUTER_API_KEY    OpenRouter key. If unset/empty, falls back to a plain
 #                         commit-subject list (no network call).
-#   CHANGELOG_MODEL       Model id (default: deepseek/deepseek-v4-flash).
+#   CHANGELOG_MODEL       Model id (default: deepseek/deepseek-v4-flash-0731).
 #   OPENROUTER_BASE_URL   API base (default: https://openrouter.ai/api/v1).
 #   PROJECT_NAME          Optional project name, for prompt context.
 #   PROJECT_DESCRIPTION   Optional one-line project description, for prompt context.
@@ -29,7 +29,7 @@ set -uo pipefail
 
 version="${1:?usage: gen-changelog.sh <version> [<git-range>]}"
 range="${2:-HEAD}"
-model="${CHANGELOG_MODEL:-deepseek/deepseek-v4-flash}"
+model="${CHANGELOG_MODEL:-deepseek/deepseek-v4-flash-0731}"
 base_url="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 project_name="${PROJECT_NAME:-this project}"
 project_description="${PROJECT_DESCRIPTION:-}"
@@ -94,6 +94,8 @@ preserve_changelog() {
 }
 
 handle_generation_failure() {
+  # Notices go to stderr so stdout stays a pure markdown section.
+  echo "::notice::changelog generation fallback: $1 (fallback-mode=$fallback_mode, model=$model)" >&2
   if [ "$fallback_mode" = "preserve" ]; then
     preserve_changelog "$1"
   else
@@ -178,21 +180,39 @@ payload="$(jq -n \
      {role: "user", content: $usr}
    ]}')"
 
-response="$(curl -sS --max-time 120 \
-  --max-filesize 1048576 \
-  -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -H "HTTP-Referer: https://github.com/grok-insider/release-changelog-action" \
-  -H "X-Title: release-changelog-action" \
-  -d "$payload" \
-  "${base_url}/chat/completions" 2>/dev/null)" || {
-    handle_generation_failure "the OpenRouter request failed"
-    exit 0
-  }
+openrouter_chat() {
+  curl -sS --max-time 120 \
+    --max-filesize 1048576 \
+    -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -H "HTTP-Referer: https://github.com/grok-insider/release-changelog-action" \
+    -H "X-Title: release-changelog-action" \
+    -d "$payload" \
+    "${base_url}/chat/completions"
+}
 
-content="$(printf '%s' "$response" | jq -r '.choices[0].message.content // empty' 2>/dev/null)"
-if [ -z "$content" ]; then
-  handle_generation_failure "OpenRouter returned no changelog content"
+response=""
+attempt=1
+while [ "$attempt" -le 2 ]; do
+  if response="$(openrouter_chat 2>/dev/null)"; then
+    content="$(printf '%s' "$response" | jq -r '.choices[0].message.content // empty' 2>/dev/null)"
+    if [ -n "$content" ]; then
+      break
+    fi
+    err_msg="$(printf '%s' "$response" | jq -r '.error.message // .error // empty' 2>/dev/null | head -c 200)"
+    echo "::notice::OpenRouter attempt $attempt returned no content${err_msg:+: $err_msg}" >&2
+  else
+    echo "::notice::OpenRouter attempt $attempt failed (network/timeout)" >&2
+    content=""
+  fi
+  if [ "$attempt" -eq 1 ]; then
+    sleep 2
+  fi
+  attempt=$((attempt + 1))
+done
+
+if [ -z "${content:-}" ]; then
+  handle_generation_failure "OpenRouter returned no changelog content after retries"
   exit 0
 fi
 

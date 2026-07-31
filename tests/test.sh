@@ -362,4 +362,120 @@ if [ ! -f "$persisted_section" ] || [ -s "$persisted_section" ]; then
 fi
 pass "composite missing-file path is a warning-only no-op"
 
+
+# --- extract-section.sh ---
+cat > "$tmp/CHANGELOG.md" <<'CL'
+# Changelog
+
+## [1.2.0] - 2026-07-10
+
+- Added first thing
+- Fixed second thing
+
+## [1.1.0] - 2026-06-01
+
+- Older
+CL
+bash "$root/extract-section.sh" 1.2.0 "$tmp/CHANGELOG.md" > "$tmp/extracted"
+grep -q 'Added first thing' "$tmp/extracted" || fail "extract missing bullet"
+grep -q 'Fixed second thing' "$tmp/extracted" || fail "extract missing bullet 2"
+! grep -q '^## ' "$tmp/extracted" || fail "extract included heading"
+pass "extract-section returns body without heading"
+
+bash "$root/extract-section.sh" 9.9.9 "$tmp/CHANGELOG.md" > "$tmp/empty_extract"
+[ ! -s "$tmp/empty_extract" ] || fail "missing version should be empty"
+pass "extract-section empty for unknown version"
+
+# --- publish-github-release.sh with fake gh ---
+export PATH="$tmp/bin:$PATH"
+export GH_LOG="$tmp/gh.log"
+export GITHUB_TOKEN=fake
+export CREATE_IF_MISSING=true
+export PUBLISH_RESULT_FILE="$tmp/pub.result"
+printf 'notes body\n' > "$tmp/notes.md"
+
+cat > "$tmp/bin/gh" <<'GH'
+#!/usr/bin/env bash
+echo "$@" >> "${GH_LOG:?}"
+if [ "$1" = "release" ] && [ "$2" = "view" ]; then
+  exit 1
+fi
+if [ "$1" = "release" ] && [ "$2" = "create" ]; then
+  exit 0
+fi
+if [ "$1" = "release" ] && [ "$2" = "edit" ]; then
+  exit 0
+fi
+exit 0
+GH
+chmod 0755 "$tmp/bin/gh"
+: > "$GH_LOG"
+bash "$root/publish-github-release.sh" v1.2.0 "$tmp/notes.md"
+assert_equals true "$(cat "$tmp/pub.result")" "publish result true"
+grep -q 'release create v1.2.0' "$GH_LOG" || fail "expected gh release create"
+pass "publish-github-release creates when missing"
+
+cat > "$tmp/bin/gh" <<'GH'
+#!/usr/bin/env bash
+echo "$@" >> "${GH_LOG:?}"
+if [ "$1" = "release" ] && [ "$2" = "view" ]; then exit 0; fi
+if [ "$1" = "release" ] && [ "$2" = "edit" ]; then exit 0; fi
+exit 0
+GH
+chmod 0755 "$tmp/bin/gh"
+: > "$GH_LOG"
+bash "$root/publish-github-release.sh" v1.2.0 "$tmp/notes.md"
+grep -q 'release edit v1.2.0' "$GH_LOG" || fail "expected gh release edit"
+pass "publish-github-release edits when present"
+
+# --- run-action skip-generate + publish ---
+pub_repo="$tmp/pub_repo"
+mkdir -p "$pub_repo"
+cp "$tmp/CHANGELOG.md" "$pub_repo/CHANGELOG.md"
+git -C "$pub_repo" init -q
+git -C "$pub_repo" config user.name Test
+git -C "$pub_repo" config user.email test@example.com
+git -C "$pub_repo" add CHANGELOG.md
+git -C "$pub_repo" commit -q -m 'chore: changelog'
+: > "$GH_LOG"
+export GH_NOTES_CAPTURE="$tmp/published.notes"
+cat > "$tmp/bin/gh" <<'GH'
+#!/usr/bin/env bash
+echo "$@" >> "${GH_LOG:?}"
+if [ "$1" = "release" ] && [ "$2" = "view" ]; then exit 0; fi
+if [ "$1" = "release" ] && [ "$2" = "edit" ]; then
+  i=1
+  while [ "$i" -le "$#" ]; do
+    eval "a=\${$i}"
+    if [ "$a" = "--notes-file" ]; then
+      i=$((i+1))
+      eval "nf=\${$i}"
+      cp "$nf" "${GH_NOTES_CAPTURE:?}"
+    fi
+    i=$((i+1))
+  done
+  exit 0
+fi
+exit 0
+GH
+chmod 0755 "$tmp/bin/gh"
+gout="$tmp/gha.out"
+(
+  cd "$pub_repo"
+  GITHUB_OUTPUT="$gout" \
+  VERSION=1.2.0 \
+  SKIP_GENERATE=true \
+  PUBLISH_GITHUB_RELEASE=true \
+  GITHUB_TOKEN_INPUT=fake \
+  RELEASE_TAG=v1.2.0 \
+  NOTES_FOOTER="$(printf '%s\n' '---' '' '**Install**' '' 'hello')" \
+  CHANGELOG_FILE=CHANGELOG.md \
+  bash "$root/run-action.sh"
+)
+grep -q 'Added first thing' "$tmp/published.notes" || fail "published notes missing section body"
+grep -q 'Install' "$tmp/published.notes" || fail "published notes missing footer"
+assert_equals true "$(output_value published "$gout")" "published output"
+assert_equals preserved "$(output_value generation-source "$gout")" "skip-generate source"
+pass "run-action skip-generate publishes section + footer"
+
 echo "1..$tests"

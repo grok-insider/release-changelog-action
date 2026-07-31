@@ -35,6 +35,29 @@ Release PR, commits, and pushes (it owns the PR context and token).
   Improved, Fixed, or Removed. Commit messages are treated as untrusted prompt
   data rather than model instructions.
 
+
+## Publish GitHub Release notes (optional)
+
+After a tag exists, product workflows can call the same action to set the Release
+body from the CHANGELOG section (and an optional footer), without calling OpenRouter:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    ref: ${{ needs.resolve.outputs.tag }}
+- uses: grok-insider/release-changelog-action@v1
+  with:
+    version: ${{ needs.resolve.outputs.version }}
+    skip-generate: true
+    publish-github-release: true
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    tag: ${{ needs.resolve.outputs.tag }}
+    notes-footer-file: site/release-footer.md
+```
+
+`extract-section.sh` powers the body extract (Keep a Changelog / plain headings).
+`publish-github-release.sh` runs `gh release edit` or `create`.
+
 ## Requirements
 
 - Runs on a runner with `bash`, `jq`, `curl`, `git`, `awk`, `sed`, `perl` (all
@@ -62,7 +85,7 @@ Release PR, commits, and pushes (it owns the PR context and token).
 |-------|----------|---------|-------------|
 | `version` | yes | — | Version being released, e.g. `0.2.0` (no leading `v`). |
 | `range` | no | since last tag | git range, e.g. `v0.1.0..HEAD`. Empty → latest `v*` tag..HEAD (or whole history). Prefer an explicit range on hand-rolled release PRs. |
-| `model` | no | `deepseek/deepseek-v4-flash` | OpenRouter model id. |
+| `model` | no | `deepseek/deepseek-v4-flash-0731` | OpenRouter model id. |
 | `changelog-file` | no | `CHANGELOG.md` | File to update. |
 | `openrouter-api-key` | no | — | OpenRouter key. Empty → selected fallback behavior. |
 | `openrouter-base-url` | no | `https://openrouter.ai/api/v1` | OpenRouter-compatible API base (proxy/mirror). |
@@ -72,6 +95,11 @@ Release PR, commits, and pushes (it owns the PR context and token).
 | `update-mode` | no | `replace-section` | `replace-section` manages the complete version section; `highlights` manages only `### Highlights` inside an existing section. |
 | `fallback-mode` | no | `commit-list` | `commit-list` emits deterministic commit bullets; `preserve` leaves the changelog unchanged when generation fails. |
 | `commit-detail` | no | `full` | `full` sends commit subjects and bodies to OpenRouter; `subjects` sends subjects only. |
+| `skip-generate` | no | `false` | Skip AI/CHANGELOG rewrite; only extract + publish. Requires `publish-github-release`. |
+| `publish-github-release` | no | `false` | Set GitHub Release body from CHANGELOG section (+ footer). |
+| `github-token` | if publishing | — | Token for `gh release edit/create`. |
+| `tag` | if publishing | `v${version}` | Release tag. |
+| `notes-footer` / `notes-footer-file` | no | — | Optional markdown appended after the section. |
 
 The **minimal** call passes only `version` + `openrouter-api-key` (the real
 consumers also pass `project-description` and usually `range`); everything else
@@ -85,6 +113,8 @@ need a post-sed normalize step.
 | `section-file` | Path to the generated candidate version section (heading + bullets). In Highlights mode the action extracts those bullets into `### Highlights`; preserved runs leave this file empty. The file remains available to later steps in the same job. |
 | `changed` | `'true'` if the changelog file content changed, else `'false'`. |
 | `generation-source` | `ai`, `fallback`, or `preserved`. |
+| `notes-file` | Assembled GitHub Release notes path (when built). |
+| `published` | `true` if a Release was created/edited. |
 
 ## Usage — preserve canonical changelog sections
 
@@ -272,6 +302,21 @@ commit SHA instead:
 ```yaml
 uses: grok-insider/release-changelog-action@<full-commit-sha>  # immutable
 ```
+
+## Contributing
+
+The action is plain bash — no build step. Before opening a PR against
+`master`, run what CI runs:
+
+```sh
+bash tests/test.sh          # deterministic tests (fake curl, no network)
+shellcheck gen-changelog.sh run-action.sh update-changelog.sh update-highlights.sh tests/*.sh
+actionlint                  # validates .github/workflows
+```
+
+New inputs must be documented in both `action.yml` and this README, wired
+through `run-action.sh` as environment variables, and covered by a test in
+`tests/test.sh`.
 
 ## License
 

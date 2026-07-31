@@ -1,5 +1,5 @@
 name: "AI release changelog"
-description: "Generate Claude-Code-style release notes via OpenRouter and update a CHANGELOG version section or its Highlights subsection."
+description: "Generate Claude-Code-style release notes via OpenRouter, update CHANGELOG.md, and optionally publish GitHub Release notes."
 author: "grok-insider"
 branding:
   icon: "file-text"
@@ -16,7 +16,7 @@ inputs:
   model:
     description: "OpenRouter model id."
     required: false
-    default: "deepseek/deepseek-v4-flash"
+    default: "deepseek/deepseek-v4-flash-0731"
   changelog-file:
     description: "Path to the changelog file to update."
     required: false
@@ -53,6 +53,38 @@ inputs:
     description: "full sends commit subjects and bodies to OpenRouter; subjects sends subjects only."
     required: false
     default: "full"
+  skip-generate:
+    description: "If true, do not call OpenRouter or rewrite CHANGELOG.md; only extract + publish (requires publish-github-release)."
+    required: false
+    default: "false"
+  publish-github-release:
+    description: "If true, set the GitHub Release body from the CHANGELOG section (plus optional footer)."
+    required: false
+    default: "false"
+  github-token:
+    description: "Token for gh release edit/create when publish-github-release is true."
+    required: false
+    default: ""
+  tag:
+    description: "GitHub Release tag (e.g. v0.1.1). Defaults to v${version} when publishing."
+    required: false
+    default: ""
+  notes-footer:
+    description: "Optional markdown appended after the CHANGELOG section on the GitHub Release body."
+    required: false
+    default: ""
+  notes-footer-file:
+    description: "Optional path to a markdown file appended as the release footer (takes precedence over notes-footer when set)."
+    required: false
+    default: ""
+  release-title:
+    description: "GitHub Release title when publishing (default: tag)."
+    required: false
+    default: ""
+  create-if-missing:
+    description: "If true, create the GitHub Release when the tag has no release yet."
+    required: false
+    default: "true"
 
 outputs:
   section-file:
@@ -64,6 +96,12 @@ outputs:
   generation-source:
     description: "How release content was produced: ai, fallback, or preserved."
     value: ${{ steps.run.outputs.generation-source }}
+  notes-file:
+    description: "Path to the assembled GitHub Release notes (section body + footer), if built."
+    value: ${{ steps.run.outputs.notes-file }}
+  published:
+    description: "'true' if a GitHub Release was created or edited with notes."
+    value: ${{ steps.run.outputs.published }}
 
 runs:
   using: "composite"
@@ -83,5 +121,13 @@ runs:
         COMMIT_DETAIL: ${{ inputs.commit-detail }}
         VERSION: ${{ inputs.version }}
         RANGE: ${{ inputs.range }}
+        SKIP_GENERATE: ${{ inputs.skip-generate }}
+        PUBLISH_GITHUB_RELEASE: ${{ inputs.publish-github-release }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github-token }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        NOTES_FOOTER: ${{ inputs.notes-footer }}
+        NOTES_FOOTER_FILE: ${{ inputs.notes-footer-file }}
+        RELEASE_TITLE: ${{ inputs.release-title }}
+        CREATE_IF_MISSING: ${{ inputs.create-if-missing }}
       run: |
         bash "${{ github.action_path }}/run-action.sh"
